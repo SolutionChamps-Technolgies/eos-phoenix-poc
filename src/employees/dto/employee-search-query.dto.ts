@@ -5,6 +5,6 @@ export class EmployeeSearchQueryDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value as string))
   name?: string;
 }
