@@ -48,7 +48,7 @@ describe('EmployeesController', () => {
 
   describe('GET /employees (no name param)', () => {
     it('calls listEmployees and returns the full list', () => {
-      expect(controller.listEmployees(undefined)).toEqual(allEmployees);
+      expect(controller.listEmployees({})).toEqual(allEmployees);
       expect(listEmployees).toHaveBeenCalledTimes(1);
       expect(searchEmployees).not.toHaveBeenCalled();
     });
@@ -56,7 +56,7 @@ describe('EmployeesController', () => {
 
   describe('GET /employees?name=...', () => {
     it('calls searchEmployees with the name and returns matched results', () => {
-      expect(controller.listEmployees('Mira')).toEqual(matchedEmployees);
+      expect(controller.listEmployees({ name: 'Mira' })).toEqual(matchedEmployees);
       expect(searchEmployees).toHaveBeenCalledWith('Mira');
       expect(searchEmployees).toHaveBeenCalledTimes(1);
       expect(listEmployees).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe('EmployeesController', () => {
     it('returns [] when searchEmployees yields no matches', () => {
       searchEmployees.mockReturnValueOnce([]);
 
-      expect(controller.listEmployees('zzz-no-match')).toEqual([]);
+      expect(controller.listEmployees({ name: 'zzz-no-match' })).toEqual([]);
     });
   });
 });

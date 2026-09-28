@@ -121,4 +121,10 @@ describe('HTTP API (e2e)', () => {
 
     expect(response.body).toEqual([]);
   });
+
+  it('GET /employees?name=Mira&name=Jonah (array) returns 400 Bad Request', async () => {
+    await request(app.getHttpServer())
+      .get('/employees?name=Mira&name=Jonah')
+      .expect(400);
+  });
 });
