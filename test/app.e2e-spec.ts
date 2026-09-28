@@ -122,6 +122,18 @@ describe('HTTP API (e2e)', () => {
     expect(response.body).toEqual([]);
   });
 
+  it('GET /employees?name= (empty) returns 400 Bad Request', async () => {
+    await request(app.getHttpServer())
+      .get('/employees?name=')
+      .expect(400);
+  });
+
+  it('GET /employees?name=%20%20 (whitespace-only) returns 400 Bad Request', async () => {
+    await request(app.getHttpServer())
+      .get('/employees?name=%20%20')
+      .expect(400);
+  });
+
   it('GET /employees?name=Mira&name=Jonah (array) returns 400 Bad Request', async () => {
     await request(app.getHttpServer())
       .get('/employees?name=Mira&name=Jonah')

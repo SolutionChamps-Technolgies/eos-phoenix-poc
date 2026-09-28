@@ -116,3 +116,11 @@ curl "http://localhost:3000/employees?name=zzz-no-match"
 ```json
 []
 ```
+
+**Blank or repeated name — returns 400 Bad Request:**
+
+Supplying an empty string, a whitespace-only string, or repeating the parameter (e.g. `?name=Mira&name=Jonah`) results in an HTTP 400 response.
+
+```bash
+curl "http://localhost:3000/employees?name="
+```
