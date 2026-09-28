@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { EmployeeResponseDto } from './dto/employee-response.dto';
 import { EmployeesService } from './employees.service';
 
@@ -7,7 +7,10 @@ export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
 
   @Get()
-  listEmployees(): EmployeeResponseDto[] {
+  listEmployees(@Query('name') name?: string): EmployeeResponseDto[] {
+    if (name !== undefined) {
+      return this.employeesService.searchEmployees(name);
+    }
     return this.employeesService.listEmployees();
   }
 }

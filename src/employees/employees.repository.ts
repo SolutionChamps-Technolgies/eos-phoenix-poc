@@ -37,4 +37,11 @@ export class EmployeesRepository {
   findAll(): Employee[] {
     return PHOENIX_EMPLOYEES.map((employee) => ({ ...employee }));
   }
+
+  findByName(name: string): Employee[] {
+    const needle = name.trim().toLowerCase();
+    return PHOENIX_EMPLOYEES.filter((employee) =>
+      employee.displayName.toLowerCase().includes(needle),
+    ).map((employee) => ({ ...employee }));
+  }
 }

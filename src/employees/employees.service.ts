@@ -11,4 +11,10 @@ export class EmployeesService {
       .findAll()
       .map((employee) => new EmployeeResponseDto(employee));
   }
+
+  searchEmployees(name: string): EmployeeResponseDto[] {
+    return this.employeesRepository
+      .findByName(name)
+      .map((employee) => new EmployeeResponseDto(employee));
+  }
 }

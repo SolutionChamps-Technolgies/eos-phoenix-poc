@@ -66,3 +66,53 @@ curl http://localhost:3000/employees
 ```
 
 `GET /employees` returns the full fixed set of four synthetic employees. The sample above shows the shape of one record.
+
+### Employee search
+
+Pass an optional `name` query parameter to filter by `displayName`. Matching is case-insensitive and surrounding whitespace is trimmed automatically.
+
+**Exact / partial match:**
+
+```bash
+curl "http://localhost:3000/employees?name=Mira"
+```
+
+```json
+[
+  {
+    "id": "phx-emp-001",
+    "displayName": "Mira Calder",
+    "jobTitle": "Platform Engineer",
+    "department": "Engineering",
+    "status": "active"
+  }
+]
+```
+
+**Case-insensitive match:**
+
+```bash
+curl "http://localhost:3000/employees?name=jonah%20hale"
+```
+
+```json
+[
+  {
+    "id": "phx-emp-002",
+    "displayName": "Jonah Hale",
+    "jobTitle": "Delivery Analyst",
+    "department": "Delivery",
+    "status": "active"
+  }
+]
+```
+
+**No match — returns an empty array:**
+
+```bash
+curl "http://localhost:3000/employees?name=zzz-no-match"
+```
+
+```json
+[]
+```
