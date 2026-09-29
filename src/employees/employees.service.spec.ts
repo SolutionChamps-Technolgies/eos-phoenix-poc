@@ -15,16 +15,18 @@ describe('EmployeesService', () => {
 
   let service: EmployeesService;
   const findAll = jest.fn<Employee[], []>().mockReturnValue([storedEmployee]);
+  const findByName = jest.fn<Employee[], [string]>().mockReturnValue([storedEmployee]);
 
   beforeEach(async () => {
     findAll.mockClear();
+    findByName.mockClear();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmployeesService,
         {
           provide: EmployeesRepository,
-          useValue: { findAll },
+          useValue: { findAll, findByName },
         },
       ],
     }).compile();
@@ -32,11 +34,30 @@ describe('EmployeesService', () => {
     service = module.get(EmployeesService);
   });
 
-  it('maps repository records to response DTOs', () => {
-    const employees = service.listEmployees();
+  describe('listEmployees', () => {
+    it('maps repository records to response DTOs', () => {
+      const employees = service.listEmployees();
 
-    expect(findAll).toHaveBeenCalledTimes(1);
-    expect(employees).toEqual([new EmployeeResponseDto(storedEmployee)]);
-    expect(employees[0]).toBeInstanceOf(EmployeeResponseDto);
+      expect(findAll).toHaveBeenCalledTimes(1);
+      expect(employees).toEqual([new EmployeeResponseDto(storedEmployee)]);
+      expect(employees[0]).toBeInstanceOf(EmployeeResponseDto);
+    });
+  });
+
+  describe('searchEmployees', () => {
+    it('delegates to findByName and maps results to response DTOs', () => {
+      const employees = service.searchEmployees('Mira');
+
+      expect(findByName).toHaveBeenCalledWith('Mira');
+      expect(findByName).toHaveBeenCalledTimes(1);
+      expect(employees).toEqual([new EmployeeResponseDto(storedEmployee)]);
+      expect(employees[0]).toBeInstanceOf(EmployeeResponseDto);
+    });
+
+    it('returns [] when findByName returns no records', () => {
+      findByName.mockReturnValueOnce([]);
+
+      expect(service.searchEmployees('zzz-no-match')).toEqual([]);
+    });
   });
 });

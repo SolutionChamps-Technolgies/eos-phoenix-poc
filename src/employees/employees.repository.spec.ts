@@ -35,14 +35,51 @@ const expectedEmployees: Employee[] = [
 describe('EmployeesRepository', () => {
   const repository = new EmployeesRepository();
 
-  it('returns the fixed synthetic Phoenix employees', () => {
-    expect(repository.findAll()).toEqual(expectedEmployees);
+  describe('findAll', () => {
+    it('returns the fixed synthetic Phoenix employees', () => {
+      expect(repository.findAll()).toEqual(expectedEmployees);
+    });
+
+    it('returns copies so callers cannot change the stored records', () => {
+      const firstRead = repository.findAll();
+      firstRead[0].displayName = 'Changed Name';
+
+      expect(repository.findAll()[0].displayName).toBe('Mira Calder');
+    });
   });
 
-  it('returns copies so callers cannot change the stored records', () => {
-    const firstRead = repository.findAll();
-    firstRead[0].displayName = 'Changed Name';
+  describe('findByName', () => {
+    it('returns employees whose displayName contains the search term', () => {
+      const results = repository.findByName('Mira');
 
-    expect(repository.findAll()[0].displayName).toBe('Mira Calder');
+      expect(results).toEqual([expectedEmployees[0]]);
+    });
+
+    it('matches case-insensitively', () => {
+      expect(repository.findByName('mira calder')).toEqual([expectedEmployees[0]]);
+      expect(repository.findByName('JONAH')).toEqual([expectedEmployees[1]]);
+    });
+
+    it('trims surrounding whitespace before matching', () => {
+      expect(repository.findByName('  Sera Quinn  ')).toEqual([expectedEmployees[2]]);
+    });
+
+    it('returns multiple employees when the term matches more than one', () => {
+      // 'a' appears in all four display names
+      const results = repository.findByName('a');
+
+      expect(results.length).toBeGreaterThan(1);
+    });
+
+    it('returns [] when no employee matches', () => {
+      expect(repository.findByName('zzz-no-match')).toEqual([]);
+    });
+
+    it('returns copies so callers cannot mutate stored records', () => {
+      const results = repository.findByName('Ellis');
+      results[0].displayName = 'Changed';
+
+      expect(repository.findByName('Ellis')[0].displayName).toBe('Ellis Rowan');
+    });
   });
 });
