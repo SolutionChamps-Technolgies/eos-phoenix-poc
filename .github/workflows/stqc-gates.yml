@@ -1,0 +1,90 @@
+# STQC pre-audit gates for this NestJS/TypeScript backend. Every job emits
+# reports archived as audit evidence. Lint, unit/e2e tests and build already
+# run in ci.yml, so they are not duplicated here.
+name: stqc-gates
+on:
+  pull_request:
+  push: { branches: [main, develop] }
+ 
+concurrency:
+  group: stqc-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+ 
+permissions:
+  contents: read
+  pull-requests: write
+ 
+jobs:
+  # ---------- Evidence dashboard: SonarQube (Community Build + community-branch-plugin) ----------
+  # Evidence/reporting only, not a blocking gate. Needs SONAR_TOKEN as a repo
+  # SECRET (project analysis token) and SONAR_HOST_URL as a repo VARIABLE
+  # (vars.X is not secrets.X).
+  sonarqube:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: branch/PR analysis needs full history
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # package.json's jest rootDir is src, so paths below are relative to it.
+      - name: Unit tests with coverage (lcov for SonarQube)
+        run: >
+          pnpm exec jest --coverage
+          --coverageDirectory="$PWD/coverage"
+          --coverageReporters=lcov --coverageReporters=text-summary
+          --collectCoverageFrom='**/*.ts' --collectCoverageFrom='!**/*.spec.ts'
+      - uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=SolutionChamps-Technolgies_eos-phoenix-poc
+            -Dsonar.sources=src
+            -Dsonar.tests=test
+            -Dsonar.exclusions=**/*.spec.ts,**/*.e2e-spec.ts
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+ 
+  # ---------- Security ("Safe to Host": OWASP Top 10 / CWE Top 25) ----------
+  security:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: secrets hide in git history
+ 
+      # The self-hosted runner does not reliably expose ~/.local/bin to jobs
+      # (gitleaks/semgrep/trivy were "command not found" on first run).
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+ 
+      - name: Secrets (full history)
+        run: gitleaks git . --report-format sarif --report-path gitleaks.sarif --redact --exit-code 1
+ 
+      - name: SAST
+        run: |
+          semgrep --config p/owasp-top-ten --config p/typescript \
+                  --sarif --output semgrep.sarif --error
+ 
+      - name: Dependencies, IaC, containers
+        run: |
+          trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+                    --format sarif --output trivy.sarif --exit-code 1 .
+ 
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: evidence-security-${{ github.sha }}
+          path: "*.sarif"
+          retention-days: 90
+ 
+  # ---------- Type safety (ISO 25010 reliability) ----------
+  types:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --noEmit
