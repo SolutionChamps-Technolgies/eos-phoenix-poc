@@ -1,0 +1,203 @@
+# STQC pre-audit gates. Every job emits SARIF/reports archived as audit evidence.
+name: stqc-gates
+on:
+  pull_request:
+  push: { branches: [main, develop] }
+
+concurrency:
+  group: stqc-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ---------- Evidence dashboard: SonarQube (Community Build + community-branch-plugin) ----------
+  # Kept as evidence/reporting only, not a blocking gate - the native tools
+  # above (ruff/eslint+sonarjs/etc.) already do the primary linting job for
+  # Python and TS/React. This produces a dated, auditor-recognised report and
+  # a cross-repo trend dashboard, which nothing else here provides.
+  # REQUIRES: SONAR_TOKEN as a repo SECRET (a PROJECT_ANALYSIS_TOKEN, not a
+  # user token - Settings > Secrets), and SONAR_HOST_URL as a repo VARIABLE,
+  # not a secret (Settings > Variables) - it isn't sensitive, and GitHub
+  # secrets/variables are two separate namespaces: vars.X != secrets.X, even
+  # if X has the same name in both. Confirmed 2026-09-03: this mismatch (had
+  # SONAR_HOST_URL under secrets.* here while it was actually set as a repo
+  # Variable) resolved to a silently empty string, not an error, until the
+  # scan action's own log showed "SONAR_HOST_URL: " blank.
+  sonarqube:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: branch/PR analysis needs full history
+      - uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        # CUSTOMIZE: sonar.projectKey per repo. If a sonar-project.properties
+        # file exists at repo root, these args are optional (it takes over).
+        with:
+          args: >
+            -Dsonar.projectKey=SolutionChamps-Technolgies_eos-phoenix-poc
+            -Dsonar.sources=src
+            -Dsonar.tests=tests
+            -Dsonar.python.version=3.12
+
+  # ---------- Track A: Security ("Safe to Host": OWASP Top 10 / CWE Top 25) ----------
+  security:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: secrets hide in git history
+
+      - name: Secrets (full history)
+        run: gitleaks git . --report-format sarif --report-path gitleaks.sarif --redact --exit-code 1
+
+      - name: SAST
+        run: |
+          semgrep --config p/owasp-top-ten --config p/python \
+                  --config p/typescript --config p/react \
+                  --sarif --output semgrep.sarif --error
+
+      # `run: cmd \` on a single-line scalar does NOT work as a shell line
+      # continuation - YAML folds the newline into a literal space, and the
+      # backslash survives as a real character, breaking flag parsing
+      # (confirmed 2026-09-03: trivy exited on its own usage/help text after
+      # receiving a mangled argument). Must use `run: |` for anything
+      # spanning multiple lines with a trailing backslash.
+      - name: Dependencies, IaC, containers
+        run: |
+          trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+                    --format sarif --output trivy.sarif --exit-code 1 .
+
+      - name: Python deps CVEs
+        run: pip-audit --strict --format json --output pip-audit.json
+        continue-on-error: false
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: evidence-security-${{ github.sha }}
+          path: "*.sarif\n*.json"
+          retention-days: 90
+
+  # ---------- Track C: Python quality (ISO 25010) ----------
+  python:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: diff-cover below needs base-branch history
+
+      # ruff and bandit are AST/pattern tools - they don't resolve third-party
+      # imports, so the globally-installed binaries are fine.
+      - run: ruff check --config .stqc/ruff.toml --output-format=github .
+      - run: ruff format --check .
+      # bandit has NO sarif output format - confirmed 2026-09-03, its only
+      # choices are csv/custom/html/json/screen/txt/xml/yaml. Using json,
+      # its own native structured format, instead of an invented sarif flag.
+      - run: bandit -q -r . -c .stqc/bandit.yaml -f json -o bandit.json
+
+      # mypy and pytest DO need to resolve the project's real dependencies to
+      # work correctly - a globally/tool-installed mypy runs in an isolated
+      # environment with none of the project's packages and will falsely
+      # report import-not-found on every third-party import. Verified
+      # 2026-09-02 against the demo repo. Both must run inside the project's
+      # own environment via `uv run` (or the project's own venv/poetry/pipenv
+      # equivalent if this repo doesn't use uv).
+      - run: uv sync --all-extras --dev
+      - run: uv run mypy --config-file .stqc/mypy.ini .
+
+      # Repo-wide floor is informational only (--cov-fail-under=0): it does NOT
+      # gate the PR. A floor here blocks a fully-tested PR whenever unrelated
+      # legacy code drags the overall percentage down - verified 2026-09-02.
+      #
+      # --cov=src (NOT bare --cov): bare --cov only tracks files that some
+      # test actually imports. A brand-new file nobody imports yet - e.g. a
+      # dangerous helper added but never wired up or tested - is then simply
+      # ABSENT from coverage.xml, and diff-cover silently reports 100% on the
+      # diff because it only reports on what's present. Verified 2026-09-02:
+      # an untested subprocess(shell=True) file passed the coverage gate
+      # entirely undetected until --cov=src was made explicit.
+      # CUSTOMIZE: change 'src' to this repo's actual source root (e.g. 'app').
+      - run: uv run pytest --cov=src --cov-report=xml --cov-fail-under=0
+
+      # The actual gate: only lines this PR touched must be covered.
+      # BASE_REF goes through env:, not direct ${{ }} interpolation into the
+      # shell - github.base_ref is attacker-controllable input (a PR author
+      # names their own branch) and inlining it into `run:` is a shell
+      # injection vector. Semgrep p/owasp-top-ten caught this - verified
+      # 2026-09-02 by running the gates against this workflow file itself.
+      - name: Coverage gate (new/changed lines only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          diff-cover coverage.xml \
+            --compare-branch="origin/${BASE_REF}" \
+            --fail-under=90 \
+            --html-report diff-coverage-python.html
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: evidence-python-${{ github.sha }}
+          path: "coverage.xml\nbandit.json\ndiff-coverage-python.html"
+          retention-days: 90
+
+  # ---------- Track B: GIGW 3.0 / WCAG 2.1 AA + web quality ----------
+  web:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with: { fetch-depth: 0 }        # REQUIRED: diff-cover below needs base-branch history
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: '24', cache: 'npm' }
+      - run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      # REQUIRES @microsoft/eslint-formatter-sarif as a devDependency in this
+      # repo's package.json - `--format` needs a LOCALLY installed formatter
+      # package, npx does not auto-fetch it the way it does for standalone
+      # CLI tools. Confirmed 2026-09-03: fails with "Cannot find module"
+      # otherwise, since it was never actually added as a dependency.
+      # `npm i -D @microsoft/eslint-formatter-sarif` before this will work.
+      - name: Lint + static accessibility (jsx-a11y blocking)
+        run: npx eslint --max-warnings 0 --format=@microsoft/eslint-formatter-sarif -o eslint.sarif .
+
+      # Repo-wide coverage is informational only - vitest.config must emit an
+      # 'lcov' reporter for diff-cover to read. Same reasoning as the Python
+      # job: a repo-wide floor blocks a fully-tested PR over unrelated legacy gaps.
+      # REQUIRES vite.config.ts test.coverage to set `all: true` + `include:`
+      # - see configs/web/vite.config.ts.template. Without it, a brand-new,
+      # never-imported component is invisible to the coverage report and
+      # diff-cover silently passes it. Verified 2026-09-02.
+      - name: Unit tests + axe assertions
+        run: npm test -- --coverage --coverage.reporter=lcov --coverage.reporter=text
+
+      - name: Coverage gate (new/changed lines only)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          diff-cover coverage/lcov.info \
+            --compare-branch="origin/${BASE_REF}" \
+            --fail-under=90 \
+            --html-report diff-coverage-web.html
+
+      - name: Build
+        run: npm run build
+
+      - name: Runtime accessibility sweep (WCAG2AA)
+        run: |
+          npm run preview & npx wait-on http://localhost:3000 -t 60000
+          npx pa11y-ci --config .stqc/.pa11yci.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: evidence-a11y-${{ github.sha }}
+          path: "pa11y-report/**\neslint.sarif\ncoverage/**\ndiff-coverage-web.html"
+          retention-days: 90
