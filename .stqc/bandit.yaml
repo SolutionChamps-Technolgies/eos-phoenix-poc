@@ -1,6 +1,0 @@
-# OWASP-aligned Python security scan (Safe-to-Host evidence)
-exclude_dirs:
-  - /tests
-  - /.venv
-  - /node_modules
-skips: []
