@@ -3,6 +3,7 @@ dist/
 coverage/
 *.tsbuildinfo
 *.log
+eos-lint-result.json
 .env
 .env.*
 .DS_Store
