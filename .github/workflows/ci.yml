@@ -35,3 +35,42 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  lint-evidence:
+    name: lint evidence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate lint evidence
+        id: evidence
+        env:
+          EOS_REPOSITORY: ${{ github.repository }}
+          EOS_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/eos-lint-evidence.mjs
+
+      - name: Upload lint evidence
+        if: ${{ !cancelled() && steps.evidence.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eos-lint-result-v1
+          path: eos-lint-result.json
+          if-no-files-found: error
+          retention-days: 30
