@@ -6,7 +6,7 @@ on:
 
 jobs:
   ci:
-    name: lint, test, and build
+    name: verify
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
