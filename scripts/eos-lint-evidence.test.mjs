@@ -148,6 +148,33 @@ test('writes the schema file without extra fields', () => {
   }
 });
 
+test('written FAIL evidence keeps schema version, repository, head SHA, and counts', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'eos-lint-fail-'));
+  const outputPath = path.join(directory, 'eos-lint-result.json');
+  const repository = 'acme-corp/eos-phoenix-poc';
+  try {
+    const evidence = buildEosLintResult(
+      evidenceInput({
+        repository,
+        errorCount: 3,
+        warningCount: 2,
+      }),
+    );
+    writeEosLintResult(evidence, outputPath);
+    const parsed = JSON.parse(readFileSync(outputPath, 'utf8'));
+
+    assertEosLintResult(parsed);
+    assert.equal(parsed.schemaVersion, 1);
+    assert.equal(parsed.repository, repository);
+    assert.equal(parsed.headSha, HEAD_SHA);
+    assert.equal(parsed.status, 'FAIL');
+    assert.equal(parsed.errorCount, 3);
+    assert.equal(parsed.warningCount, 2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('installed ESLint version is non-empty', () => {
   assert.match(readEslintVersion(), /^[A-Za-z0-9][A-Za-z0-9._+-]*$/);
 });
